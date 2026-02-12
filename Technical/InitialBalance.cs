@@ -12,7 +12,7 @@ using OFT.Attributes;
 using OFT.Localization;
 using OFT.Rendering.Settings;
 
-using Pen = System.Drawing.Pen;
+using Pen = CrossPen;
 
 [DisplayName("Initial Balance")]
 [Category(IndicatorCategories.VolumeOrderFlow)]
@@ -491,6 +491,15 @@ public class InitialBalance : Indicator
 	#endregion
 
 	#region Protected methods
+
+	protected override void OnInitialize()
+	{
+		DataSeries.ForEach(ds =>
+		{
+			if (ds is RangeDataSeries rds)
+				rds.ScaleIt = false;
+		});
+	}
 
 	protected override void OnCalculate(int bar, decimal value)
 	{
