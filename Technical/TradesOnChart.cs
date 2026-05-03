@@ -1,3 +1,4 @@
+#nullable enable annotations
 namespace ATAS.Indicators.Technical;
 
 using System;
@@ -184,9 +185,11 @@ public class TradesOnChart : Indicator
     protected override void OnDispose()
     {
         TradingStatisticsProvider.StatisticsRebuilt -= OnRecalculate;
+        TradingStatisticsProvider.RawStatisticsSourceChanged -= OnTradingStatisticsProviderSourceChanged;
         TradingStatisticsProvider.FilteredStatisticsSourceChanged -= OnTradingStatisticsProviderSourceChanged;
         TradingManager.PortfolioSelected -= TradingManager_PortfolioSelected;
-        
+        TradingManager.SecuritySelected -= OnSecuritySelected;
+
         _statistics?.HistoryMyTrades.Added -= OnTradeAdded;
     }
 
@@ -194,26 +197,51 @@ public class TradesOnChart : Indicator
     {
         TradingStatisticsProvider.StatisticsRebuilt += OnRecalculate;
         TradingStatisticsProvider.RawStatisticsSourceChanged += OnTradingStatisticsProviderSourceChanged;
+        TradingStatisticsProvider.FilteredStatisticsSourceChanged += OnTradingStatisticsProviderSourceChanged;
         TradingManager.PortfolioSelected += TradingManager_PortfolioSelected;
+        TradingManager.SecuritySelected += OnSecuritySelected;
 
-        if (TradingStatisticsProvider.RawStatistics is { } stat)
-            OnTradingStatisticsProviderSourceChanged(stat);
+        RefreshStatisticsSource(forceRecalculate: true);
     }
 
     private void OnTradingStatisticsProviderSourceChanged(ITradingStatistics stat)
     {
-        if (_statistics != null)
-            _statistics.HistoryMyTrades.Added -= OnTradeAdded;
-
-        _statistics = stat;
-        _statistics.HistoryMyTrades.Added += OnTradeAdded;
-
-        OnRecalculate();
+        RefreshStatisticsSource();
     }
 
     private void TradingManager_PortfolioSelected(Portfolio obj)
     {
-	    OnRecalculate();
+	    RefreshStatisticsSource(forceRecalculate: true);
+    }
+
+    private void RefreshStatisticsSource(bool forceRecalculate = false)
+    {
+        var stat = TradingManager?.Portfolio?.IsReplay() == true
+            ? TradingStatisticsProvider.FilteredStatistics
+            : TradingStatisticsProvider.RawStatistics;
+
+        if (stat == null)
+        {
+            if (forceRecalculate)
+                OnRecalculate();
+
+            return;
+        }
+
+        if (!ReferenceEquals(_statistics, stat))
+        {
+            if (_statistics != null)
+                _statistics.HistoryMyTrades.Added -= OnTradeAdded;
+
+            _statistics = stat;
+            _statistics.HistoryMyTrades.Added += OnTradeAdded;
+
+            OnRecalculate();
+            return;
+        }
+
+        if (forceRecalculate)
+            OnRecalculate();
     }
 
     protected override void OnApplyDefaultColors()
@@ -478,15 +506,20 @@ public class TradesOnChart : Indicator
 
     #region Private Methods
 
+    private void OnSecuritySelected(Security? security)
+    {
+        OnRecalculate();
+    }
+
     private void AddHistoryMyTrade()
     {
-	    if (TradingManager?.Portfolio == null|| TradingManager?.Security == null)
+	    if (TradingManager?.Portfolio == null || TradingManager?.Security == null)
             return;
 
 	    var allTrades = _statistics?
             .HistoryMyTrades
-		    .Where(t => 
-                t.AccountID == TradingManager.Portfolio.AccountID && 
+		    .Where(t =>
+                t.AccountID == TradingManager.Portfolio.AccountID &&
                 t.Security.SecurityId.Equals(TradingManager.Security.SecurityId, StringComparison.InvariantCultureIgnoreCase)) ?? [];
 
 	    foreach (var trade in allTrades)
@@ -498,8 +531,9 @@ public class TradesOnChart : Indicator
 	    if (TradingManager?.Portfolio == null || TradingManager?.Security == null)
 		    return;
 
-        if (trade.AccountID == TradingManager.Portfolio.AccountID && trade.Security.Instrument == TradingManager.Security.Instrument)
-		    CreateTradePair(trade);        
+        if (trade.AccountID == TradingManager.Portfolio.AccountID &&
+            trade.Security.SecurityId.Equals(TradingManager.Security.SecurityId, StringComparison.InvariantCultureIgnoreCase))
+		    CreateTradePair(trade);
     }
 
     private void CreateTradePair(HistoryMyTrade trade)
